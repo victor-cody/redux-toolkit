@@ -343,7 +343,7 @@ describe.skip('TS only tests', () => {
   })
   // pre41-remove-end
 
-  test('queryHookResult (without selector) union', () => {
+  test('queryHookResult (without selector) union', async () => {
     const useQueryStateResult = api.endpoints.test.useQueryState()
     const useQueryResult = api.endpoints.test.useQuery()
     const useQueryStateWithSelectFromResult = api.endpoints.test.useQueryState(
@@ -353,11 +353,14 @@ describe.skip('TS only tests', () => {
       }
     )
 
-    const { refetch: _omit, ...useQueryResultWithoutMethods } = useQueryResult
+    const { refetch, ...useQueryResultWithoutMethods } = useQueryResult
     expectExactType(useQueryStateResult)(useQueryResultWithoutMethods)
     expectExactType(useQueryStateWithSelectFromResult)(
       // @ts-expect-error
       useQueryResultWithoutMethods
+    )
+    expectType<ReturnType<ReturnType<typeof api.endpoints.test.select>>>(
+      await refetch()
     )
   })
 
@@ -391,8 +394,8 @@ describe.skip('TS only tests', () => {
     })(result)
   })
 
-  test('useQuery (with selectFromResult)', () => {
-    const result = api.endpoints.test.useQuery(undefined, {
+  test('useQuery (with selectFromResult)', async () => {
+    const { refetch, ...result } = api.endpoints.test.useQuery(undefined, {
       selectFromResult({
         data,
         isLoading,
@@ -418,8 +421,11 @@ describe.skip('TS only tests', () => {
       isFetching: true,
       isSuccess: false,
       isError: false,
-      refetch: () => {},
     })(result)
+
+    expectType<ReturnType<ReturnType<typeof api.endpoints.test.select>>>(
+      await refetch()
+    )
   })
 
   test('useMutation union', () => {

@@ -145,7 +145,7 @@ describe('query error handling', () => {
       )
     )
 
-    act(result.current.refetch)
+    act(() => void result.current.refetch())
 
     await hookWaitFor(() => expect(result.current.isFetching).toBeFalsy())
     expect(result.current).toEqual(
@@ -191,7 +191,7 @@ describe('query error handling', () => {
       })
     )
 
-    act(result.current.refetch)
+    act(() => void result.current.refetch())
 
     await hookWaitFor(() => expect(result.current.isFetching).toBeFalsy())
     expect(result.current).toEqual(
