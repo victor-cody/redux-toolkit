@@ -14,6 +14,7 @@ import type { Api, ApiContext } from '../apiTypes'
 import type { ApiEndpointQuery } from './module'
 import type { BaseQueryError } from '../baseQueryTypes'
 import type { QueryResultSelectorResult } from './buildSelectors'
+import { Dispatch } from 'redux'
 
 declare module './module' {
   export interface ApiEndpointQuery<
@@ -191,14 +192,14 @@ export function buildInitiate({
   api: Api<any, EndpointDefinitions, any, any>
   context: ApiContext<EndpointDefinitions>
 }) {
-  const runningQueries: Record<
-    string,
-    QueryActionCreatorResult<any> | undefined
-  > = {}
-  const runningMutations: Record<
-    string,
-    MutationActionCreatorResult<any> | undefined
-  > = {}
+  const runningQueries: Map<
+    Dispatch,
+    Record<string, QueryActionCreatorResult<any> | undefined>
+  > = new Map()
+  const runningMutations: Map<
+    Dispatch,
+    Record<string, MutationActionCreatorResult<any> | undefined>
+  > = new Map()
 
   const {
     unsubscribeQueryResult,
@@ -215,25 +216,33 @@ export function buildInitiate({
   function getRunningOperationPromise(
     endpointName: string,
     argOrRequestId: any
-  ): any {
-    const endpointDefinition = context.endpointDefinitions[endpointName]
-    if (endpointDefinition.type === DefinitionType.query) {
-      const queryCacheKey = serializeQueryArgs({
-        queryArgs: argOrRequestId,
-        endpointDefinition,
-        endpointName,
-      })
-      return runningQueries[queryCacheKey]
-    } else {
-      return runningMutations[argOrRequestId]
+  ): ThunkAction<any, any, any, AnyAction> {
+    return (dispatch: Dispatch) => {
+      const endpointDefinition = context.endpointDefinitions[endpointName]
+      if (endpointDefinition.type === DefinitionType.query) {
+        const queryCacheKey = serializeQueryArgs({
+          queryArgs: argOrRequestId,
+          endpointDefinition,
+          endpointName,
+        })
+        return runningQueries.get(dispatch)?.[queryCacheKey]
+      } else {
+        return runningMutations.get(dispatch)?.[argOrRequestId]
+      }
     }
   }
 
-  function getRunningOperationPromises() {
-    return [
-      ...Object.values(runningQueries),
-      ...Object.values(runningMutations),
-    ].filter(<T>(t: T | undefined): t is T => !!t)
+  function getRunningOperationPromises(): ThunkAction<
+    Promise<unknown>[],
+    any,
+    any,
+    AnyAction
+  > {
+    return (dispatch: Dispatch) =>
+      [
+        ...Object.values(runningQueries.get(dispatch) || {}),
+        ...Object.values(runningMutations.get(dispatch) || {}),
+      ].filter(<T>(t: T | undefined): t is T => !!t)
   }
 
   function middlewareWarning(getState: () => RootState<{}, string, string>) {
@@ -280,7 +289,10 @@ Features like automatic cache collection, automatic refetching etc. will not be 
         const { requestId, abort } = thunkResult
 
         const statePromise: QueryActionCreatorResult<any> = Object.assign(
-          Promise.all([runningQueries[queryCacheKey], thunkResult]).then(() =>
+          Promise.all([
+            runningQueries.get(dispatch)?.[queryCacheKey],
+            thunkResult,
+          ]).then(() =>
             (api.endpoints[endpointName] as ApiEndpointQuery<any, any>).select(
               arg
             )(getState())
@@ -328,10 +340,15 @@ Features like automatic cache collection, automatic refetching etc. will not be 
           }
         )
 
-        if (!runningQueries[queryCacheKey]) {
-          runningQueries[queryCacheKey] = statePromise
+        const running = runningQueries.get(dispatch) || {}
+        runningQueries.set(dispatch, running)
+        if (!running[queryCacheKey]) {
+          running[queryCacheKey] = statePromise
           statePromise.then(() => {
-            delete runningQueries[queryCacheKey]
+            delete running[queryCacheKey]
+            if (!Object.keys(running).length) {
+              runningQueries.delete(dispatch)
+            }
           })
         }
 
@@ -373,15 +390,24 @@ Features like automatic cache collection, automatic refetching etc. will not be 
           reset,
         })
 
-        runningMutations[requestId] = ret
+        const running = runningMutations.get(dispatch) || {}
+        runningMutations.set(dispatch, running)
+        running[requestId] = ret
         ret.then(() => {
-          delete runningMutations[requestId]
+          delete running[requestId]
+          if (!Object.keys(running).length) {
+            runningMutations.delete(dispatch)
+          }
         })
         if (fixedCacheKey) {
-          runningMutations[fixedCacheKey] = ret
+          running[fixedCacheKey] = ret
           ret.then(() => {
-            if (runningMutations[fixedCacheKey] === ret)
-              delete runningMutations[fixedCacheKey]
+            if (running[fixedCacheKey] === ret) {
+              delete running[fixedCacheKey]
+              if (!Object.keys(running).length) {
+                runningMutations.delete(dispatch)
+              }
+            }
           })
         }
 
